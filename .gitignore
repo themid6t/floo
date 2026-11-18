@@ -1,5 +1,6 @@
 .bus/
 CHAT.md
 /floo
+/dist/
 /bus
 floo-go-tmp-umask
