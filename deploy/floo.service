@@ -2,6 +2,7 @@
 Description=Floo agent message broker
 
 [Service]
+EnvironmentFile=-%h/.config/floo/token
 ExecStart=%h/.local/bin/floo serve
 Restart=on-failure
 RestartSec=2

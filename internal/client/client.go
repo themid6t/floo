@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/themid6t/floo/internal/broker"
@@ -30,7 +32,22 @@ func New(baseURL string) *Client {
 	if baseURL == "" {
 		baseURL = "http://127.0.0.1:7777"
 	}
-	return &Client{base: baseURL, token: os.Getenv("FLOO_TOKEN"), http: &http.Client{Timeout: 40 * time.Second}}
+	return &Client{base: baseURL, token: Token(), http: &http.Client{Timeout: 40 * time.Second}}
+}
+
+// Token returns FLOO_TOKEN, else the value in ~/.config/floo/token
+// ("FLOO_TOKEN=<hex>", the same file systemd loads as the broker's
+// EnvironmentFile), so hook-spawned adapters need no env plumbing.
+func Token() string {
+	if t := os.Getenv("FLOO_TOKEN"); t != "" {
+		return t
+	}
+	home, _ := os.UserHomeDir()
+	b, err := os.ReadFile(filepath.Join(home, ".config", "floo", "token"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(b)), "FLOO_TOKEN="))
 }
 
 func (c *Client) request(ctx context.Context, method, path string, body any, out any) error {
