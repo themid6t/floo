@@ -18,14 +18,16 @@ import (
 // via Inject, and exposes send/peers tools. Exits when Claude closes stdin.
 func ServeMCP(c *client.Client) error {
 	log.SetOutput(os.Stderr) // stdout is the MCP channel
-	s, err := Current()
-	if err != nil {
-		return err
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	me := client.Session{ID: s.ID, Provider: "claude", Name: s.Name, Project: s.Cwd}
-	go deliver(ctx, c, s, me)
+	// Outside a session (e.g. `claude mcp get` health check) still serve the
+	// handshake so the check passes; tool calls then report sessErr.
+	s, sessErr := Current()
+	var me client.Session
+	if sessErr == nil {
+		me = client.Session{ID: s.ID, Provider: "claude", Name: s.Name, Project: s.Cwd}
+		go deliver(ctx, c, s, me)
+	}
 
 	var mu sync.Mutex
 	out := json.NewEncoder(os.Stdout)
@@ -71,7 +73,10 @@ func ServeMCP(c *client.Client) error {
 				Arguments map[string]string `json:"arguments"`
 			}
 			json.Unmarshal(req.Params, &p)
-			text, err := call(ctx, c, me, p.Name, p.Arguments)
+			text, err := "", sessErr
+			if err == nil {
+				text, err = call(ctx, c, me, p.Name, p.Arguments)
+			}
 			if err != nil {
 				text = "error: " + err.Error()
 			}
