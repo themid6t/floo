@@ -22,6 +22,22 @@ type HookInput struct {
 }
 
 func Agent(ctx context.Context, c *client.Client, id, name, project string) error {
+	if _, err := safeID(id); err != nil {
+		return err
+	}
+	dir := stateDir()
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	lock, err := os.OpenFile(filepath.Join(dir, id+".lock"), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		return nil
+	} // another adapter owns this session
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
 	me := client.Session{ID: id, Name: name, Provider: "codex", Project: project}
 	var after int64
 	for ctx.Err() == nil {
@@ -110,14 +126,6 @@ func Hook(in HookInput) error {
 	if err := os.Remove(stop); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	pidPath := filepath.Join(dir, id+".pid")
-	if raw, err := os.ReadFile(pidPath); err == nil {
-		var pid int
-		fmt.Sscanf(string(raw), "%d", &pid)
-		if pid > 0 && syscall.Kill(pid, 0) == nil {
-			return nil
-		}
-	}
 	exe, err := os.Executable()
 	if err != nil {
 		return err
@@ -137,9 +145,6 @@ func Hook(in HookInput) error {
 	cmd.Stderr = logfile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
-		return err
-	}
-	if err := os.WriteFile(pidPath, []byte(fmt.Sprint(cmd.Process.Pid)), 0600); err != nil {
 		return err
 	}
 	return cmd.Process.Release()

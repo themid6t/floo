@@ -94,3 +94,16 @@ func TestRoutingAndExpiredSession(t *testing.T) {
 		t.Fatal("expired target accepted")
 	}
 }
+
+func TestOnlyOneBrokerOwnsState(t *testing.T) {
+	dir := t.TempDir()
+	b, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	if other, err := Open(dir); err == nil {
+		other.Close()
+		t.Fatal("second broker opened same state")
+	}
+}
