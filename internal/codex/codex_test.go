@@ -2,10 +2,12 @@ package codex
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,7 +24,7 @@ func TestAgentQueuesThenAcknowledges(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := filepath.Join(state, "queue-args")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" > '" + output + "'\n"
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '" + output + "'\n"
 	if err := os.WriteFile(filepath.Join(bin, "codex"), []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -32,14 +34,22 @@ func TestAgentQueuesThenAcknowledges(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer b.Close()
-	srv := httptest.NewServer((&server.Server{Broker: b}).Handler())
+	base := (&server.Server{Broker: b}).Handler()
+	var rejectFirstAck atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/acks" && !rejectFirstAck.Swap(true) {
+			http.Error(w, `{"error":"temporary failure"}`, http.StatusServiceUnavailable)
+			return
+		}
+		base.ServeHTTP(w, r)
+	}))
 	defer srv.Close()
 	c := client.New(srv.URL)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- Agent(ctx, c, "test-thread", "codex-test", "/project") }()
-	deadline := time.Now().Add(4 * time.Second)
+	deadline := time.Now().Add(8 * time.Second)
 	for {
 		ps, _ := c.Peers(context.Background())
 		if len(ps) == 1 {
@@ -76,6 +86,13 @@ func TestAgentQueuesThenAcknowledges(t *testing.T) {
 			t.Fatal("queued message not acknowledged")
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+	raw, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(raw), "--thread test-thread"); n != 1 {
+		t.Fatalf("queued %d times after ack retry: %s", n, raw)
 	}
 	cancel()
 	select {

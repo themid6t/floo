@@ -68,10 +68,21 @@ func Agent(ctx context.Context, c *client.Client, id, name, project string) erro
 				pause(ctx)
 				break
 			}
-			if err := c.Ack(ctx, id, m.Seq); err != nil {
-				fmt.Fprintln(os.Stderr, "floo ack:", err)
+			// The native queue accepted the message. Keep retrying only its ack;
+			// polling again here would queue duplicates while the broker is down.
+			for {
+				if stopped(id) {
+					return nil
+				}
+				if err := c.Ack(ctx, id, m.Seq); err == nil {
+					break
+				} else {
+					fmt.Fprintln(os.Stderr, "floo ack:", err)
+				}
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 				pause(ctx)
-				break
 			}
 			after = m.Seq
 		}
