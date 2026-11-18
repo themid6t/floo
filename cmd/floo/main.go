@@ -103,6 +103,8 @@ func run(args []string) error {
 		id := f.String("id", "", "Codex thread ID")
 		name := f.String("name", "", "display name")
 		project := f.String("project", "", "project path")
+		ownerPID := f.Int("owner-pid", 0, "Codex process PID from SessionStart hook")
+		ownerStart := f.String("owner-start", "", "Codex process start tick")
 		if err := f.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -111,7 +113,7 @@ func run(args []string) error {
 		}
 		runCtx, done := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 		defer done()
-		return codex.Agent(runCtx, c, *id, *name, *project)
+		return codex.AgentWithOwner(runCtx, c, *id, *name, *project, *ownerPID, *ownerStart)
 	case "register":
 		f := flag.NewFlagSet("register", flag.ContinueOnError)
 		id := f.String("id", "", "session ID")

@@ -37,6 +37,10 @@ func InstallHookAt(path, exe string) (string, error) {
 	quoted := "'" + strings.ReplaceAll(exe, "'", "'\\''") + "'"
 	command := quoted + " codex-hook"
 	for _, event := range []string{"SessionStart", "SessionEnd"} {
+		timeout := 5
+		if event == "SessionEnd" {
+			timeout = 3
+		}
 		groups, _ := hooks[event].([]any)
 		found := false
 		for _, g := range groups {
@@ -45,12 +49,13 @@ func InstallHookAt(path, exe string) (string, error) {
 			for _, h := range handlers {
 				hm, _ := h.(map[string]any)
 				if hm["command"] == command {
+					hm["timeout"] = timeout
 					found = true
 				}
 			}
 		}
 		if !found {
-			groups = append(groups, map[string]any{"hooks": []any{map[string]any{"type": "command", "command": command, "timeout": 5}}})
+			groups = append(groups, map[string]any{"hooks": []any{map[string]any{"type": "command", "command": command, "timeout": timeout}}})
 			hooks[event] = groups
 		}
 	}

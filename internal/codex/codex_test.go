@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -99,5 +100,48 @@ func TestAgentQueuesThenAcknowledges(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("agent did not stop")
+	}
+}
+
+func TestAgentStopsWhenOwnerDies(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	owner := exec.Command("sleep", "30")
+	if err := owner.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { owner.Process.Kill(); owner.Wait() }()
+	_, start, err := procInfo(owner.Process.Pid)
+	if err != nil {
+		t.Skipf("/proc unavailable: %v", err)
+	}
+	b, err := broker.Open(filepath.Join(state, "broker"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	srv := httptest.NewServer((&server.Server{Broker: b}).Handler())
+	defer srv.Close()
+	c := client.New(srv.URL)
+	done := make(chan error, 1)
+	go func() {
+		done <- AgentWithOwner(context.Background(), c, "owner-test", "owner-test", "/project", owner.Process.Pid, start)
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		peers, _ := c.Peers(context.Background())
+		if len(peers) == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("agent did not register")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	owner.Process.Kill()
+	select {
+	case <-done:
+	case <-time.After(4 * time.Second):
+		t.Fatal("agent stayed alive after owner died")
 	}
 }

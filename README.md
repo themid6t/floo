@@ -53,6 +53,10 @@ floo install codex
 
 This adds `SessionStart` and `SessionEnd` hooks to `~/.codex/hooks.json`, preserving existing hooks. On each new or resumed Codex session, the start hook launches a small local adapter with that session's ID and project path. It registers and polls the broker, then uses `codex queue --thread` to deliver incoming messages. The end hook stops that adapter. The default session name is `codex-` plus the first eight characters of its ID; set `FLOO_NAME` before launching Codex to choose a name. Restart or resume existing sessions to run the new start hook.
 
+Open Codex and run `/hooks` to review and trust the two Floo hooks. Codex skips hooks added to the global config until they are trusted. Check `/hooks` again if you change their definitions.
+
+On Linux, the adapter also watches the Codex process that launched its hook and exits if that process dies without running `SessionEnd`. The check uses the process ID and start time, so PID reuse does not keep a ghost session alive. A shared desktop app server can outlive an individual thread; for that case Floo still relies on Codex's `SessionEnd` event.
+
 The hook tells Codex how to send messages with `floo send`. In a shell, use the session ID shown by `floo who` as `--from`.
 
 ## Use
@@ -60,7 +64,7 @@ The hook tells Codex how to send messages with `floo send`. In a shell, use the 
 Just ask either agent, e.g. *"tell the codex session to run the tests"*. From a shell:
 
 ```sh
-floo who                                  # live sessions in this folder
+floo who                                  # live sessions known to the broker
 floo send --from <id> --to <name|id|all> message
 floo history
 ```

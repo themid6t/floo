@@ -22,9 +22,32 @@ type HookInput struct {
 }
 
 func Agent(ctx context.Context, c *client.Client, id, name, project string) error {
+	return AgentWithOwner(ctx, c, id, name, project, 0, "")
+}
+
+// AgentWithOwner exits if the Codex process that launched its hook dies.
+// The process start time prevents treating a reused PID as the same owner.
+func AgentWithOwner(ctx context.Context, c *client.Client, id, name, project string, ownerPID int, ownerStart string) error {
 	if _, err := safeID(id); err != nil {
 		return err
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		tick := time.NewTicker(2 * time.Second)
+		defer tick.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+				if stopped(id) || !ownerAlive(ownerPID, ownerStart) {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
 	dir := stateDir()
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
@@ -86,6 +109,9 @@ func Agent(ctx context.Context, c *client.Client, id, name, project string) erro
 			}
 			after = m.Seq
 		}
+	}
+	if stopped(id) || !ownerAlive(ownerPID, ownerStart) {
+		return nil
 	}
 	return ctx.Err()
 }
@@ -151,6 +177,12 @@ func Hook(in HookInput) error {
 	}
 	defer logfile.Close()
 	cmd := exec.Command(exe, "codex-agent", "--id", id, "--name", name, "--project", in.Cwd)
+	if pid, start := findCodexOwner(os.Getppid()); pid > 0 {
+		fmt.Fprintf(logfile, "floo: Codex owner pid %d\n", pid)
+		cmd.Args = append(cmd.Args, "--owner-pid", fmt.Sprint(pid), "--owner-start", start)
+	} else {
+		fmt.Fprintln(logfile, "floo: Codex owner unavailable; relying on SessionEnd")
+	}
 	cmd.Stdin = nil
 	cmd.Stdout = logfile
 	cmd.Stderr = logfile
