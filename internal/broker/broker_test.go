@@ -53,7 +53,6 @@ func TestPendingMessageSurvivesRestartAndAcknowledgement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer b.Close()
 	if len(msgs) != 0 {
 		t.Fatalf("acked message replayed: %+v", msgs)
 	}
@@ -64,6 +63,7 @@ func TestRoutingAndExpiredSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer b.Close()
 	for _, s := range []Session{
 		{ID: "c1", Name: "worker", Provider: "codex", Project: "/p"},
 		{ID: "a1", Name: "worker", Provider: "claude", Project: "/q"},
@@ -105,5 +105,34 @@ func TestOnlyOneBrokerOwnsState(t *testing.T) {
 	if other, err := Open(dir); err == nil {
 		other.Close()
 		t.Fatal("second broker opened same state")
+	}
+}
+
+func TestRetentionKeepsPendingAndPrunesOldAcknowledged(t *testing.T) {
+	dir := t.TempDir()
+	b, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-8 * 24 * time.Hour)
+	b.data.Messages[1] = Message{Seq: 1, To: "receiver", Text: "done", Time: old, Acked: true, AckedAt: old}
+	b.data.Messages[2] = Message{Seq: 2, To: "receiver", Text: "pending", Time: old}
+	b.data.NextSeq = 2
+	if err := b.save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Close(); err != nil {
+		t.Fatal(err)
+	}
+	b, err = Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	if _, ok := b.data.Messages[1]; ok {
+		t.Fatal("old acknowledged message retained")
+	}
+	if got, ok := b.data.Messages[2]; !ok || got.Text != "pending" {
+		t.Fatal("pending message lost")
 	}
 }

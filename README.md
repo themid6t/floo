@@ -72,6 +72,7 @@ Addressing: a session ID works anywhere. A name resolves in the sender's project
 - **Claude:** delivery needs the session's own token, which only processes started by that session have. That's why delivery runs inside `floo mcp` and not in the broker. Sessions started without the MCP server can't receive messages.
 - **Codex:** `codex queue` delivers between turns, so a Codex session in a long turn sees the message when that turn ends.
 - A session counts as gone 2 minutes after its last heartbeat. Messages wait in the broker until delivered (at-least-once delivery: after an adapter restart, a message can arrive twice).
+- Pending messages remain on disk until acknowledged. Acknowledged messages are kept for 7 days, then removed on the next broker write.
 - "Acked" means the adapter handed the message to the native receiver (Claude inbox socket or `codex queue`). It does not mean the model has read or acted on it; ask for a reply if you need that.
 - Peer messages are not user approval. Both agents are told to treat them as requests from a teammate.
 - The broker's single state file is intended for one user's small to moderate number of sessions. It stores message text on disk and rewrites the file on updates. Run one broker process per state directory; a file lock prevents concurrent writers.

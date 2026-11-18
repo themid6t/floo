@@ -31,6 +31,7 @@ type Message struct {
 	Text     string    `json:"text"`
 	Time     time.Time `json:"time"`
 	Acked    bool      `json:"acked"`
+	AckedAt  time.Time `json:"acked_at,omitempty"`
 }
 
 type state struct {
@@ -97,10 +98,24 @@ func (b *Broker) Close() error {
 	return closeErr
 }
 
-// save must be called with mu held. The temp file, rename, and directory sync
-// make acknowledged writes survive a process crash and ordinary power loss.
+const acknowledgedRetention = 7 * 24 * time.Hour
+
+// save must be called with mu held. Old acknowledged messages are removed
+// from the saved snapshot; pending messages are retained until delivery.
 func (b *Broker) save() error {
-	raw, err := json.Marshal(b.data)
+	snapshot := b.data
+	snapshot.Messages = make(map[int64]Message, len(b.data.Messages))
+	cutoff := time.Now().Add(-acknowledgedRetention)
+	for seq, m := range b.data.Messages {
+		ackedAt := m.AckedAt
+		if ackedAt.IsZero() {
+			ackedAt = m.Time
+		} // state written before AckedAt existed
+		if !m.Acked || !ackedAt.Before(cutoff) {
+			snapshot.Messages[seq] = m
+		}
+	}
+	raw, err := json.Marshal(snapshot)
 	if err != nil {
 		return err
 	}
@@ -132,7 +147,11 @@ func (b *Broker) save() error {
 		return err
 	}
 	defer d.Close()
-	return d.Sync()
+	if err := d.Sync(); err != nil {
+		return err
+	}
+	b.data.Messages = snapshot.Messages
+	return nil
 }
 
 func (b *Broker) signal() { close(b.wakeup); b.wakeup = make(chan struct{}) }
@@ -275,9 +294,11 @@ func (b *Broker) Ack(session string, seq int64) error {
 		return nil
 	}
 	m.Acked = true
+	m.AckedAt = time.Now().UTC()
 	b.data.Messages[seq] = m
 	if err := b.save(); err != nil {
 		m.Acked = false
+		m.AckedAt = time.Time{}
 		b.data.Messages[seq] = m
 		return err
 	}

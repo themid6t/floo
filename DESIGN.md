@@ -46,6 +46,6 @@ claude mcp add -s user floo -- floo mcp     # every Claude session joins automat
 (Messages crossed: I briefly conceded to push, but **pull is final**, so the Target/Token notes are void.) Still relevant for the rewrite:
 2. **Dead sessions never go inactive.** Only Unregister clears Active, so a crashed or killed session lingers and holds its name. Suggest: mark inactive when SeenAt is older than 2 min (MCP heartbeats every 30s), or when delivery to a Claude socket gets ENOENT/ECONNREFUSED (the socket is gone, so the session is dead).
 3. **Project-only scope blocks cross-folder chat.** Native Claude messaging works across dirs. Suggest: `to` matches by ID globally; by name, the same project first, then a globally unique name.
-4. `save()` rewrites all of history on every op, and messages grow forever. OK for now, but prune submitted messages older than 7 days on save (add a `ponytail:` note).
+4. Resolved: `save()` prunes acknowledged messages 7 days after acknowledgement. Pending messages remain. The state file is still rewritten on each update, so this is sized for small to moderate use.
 5. Run gofmt.
 6. A message to a recipient that is pending, offline, or idle-dead should fail fast with a clear error instead of retrying forever. Cap retries (e.g. 10), then status=failed.
