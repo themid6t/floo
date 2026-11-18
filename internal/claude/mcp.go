@@ -158,15 +158,18 @@ func deliver(ctx context.Context, c *client.Client, s *Session, me client.Sessio
 				log.Printf("floo: inject: %v", err)
 				break // retry from this message on next poll
 			}
-			// Already injected: advance even if ack fails, so this session never
-			// sees it twice. An unacked message is redelivered only after restart.
+			// At-least-once: if ack keeps failing, don't advance; the next poll
+			// redelivers (a duplicate beats a message stranded until restart).
+			var ackErr error
 			for i := 0; i < 3; i++ {
-				if err := c.Ack(ctx, me.ID, m.Seq); err == nil {
+				if ackErr = c.Ack(ctx, me.ID, m.Seq); ackErr == nil {
 					break
-				} else {
-					log.Printf("floo: ack #%d: %v", m.Seq, err)
-					sleep(ctx, time.Second)
 				}
+				log.Printf("floo: ack #%d: %v", m.Seq, ackErr)
+				sleep(ctx, time.Second)
+			}
+			if ackErr != nil {
+				break
 			}
 			after = m.Seq
 		}
